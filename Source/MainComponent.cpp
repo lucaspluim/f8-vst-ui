@@ -5,27 +5,7 @@ MainComponent::MainComponent()
     setSize(700, 700);
     addAndMakeVisible(xyControl);
 
-    // Initialize with placeholder presets to demonstrate scrolling
-    savedPresets.push_back({"preset_1", "", false});
-    savedPresets.push_back({"preset_2", "", false});
-    savedPresets.push_back({"preset_3", "", true});  // Favorited
-    savedPresets.push_back({"preset_4", "", false});
-    savedPresets.push_back({"preset_5", "", true});  // Favorited
-    savedPresets.push_back({"preset_6", "", false});
-    savedPresets.push_back({"preset_7", "", false});
-    savedPresets.push_back({"preset_8", "", false});
-    savedPresets.push_back({"preset_9", "", false});
-    savedPresets.push_back({"preset_10", "", true});  // Favorited
-    savedPresets.push_back({"preset_11", "", false});
-    savedPresets.push_back({"preset_12", "", false});
-    savedPresets.push_back({"preset_13", "", false});
-    savedPresets.push_back({"preset_14", "", false});
-    savedPresets.push_back({"preset_15", "", true});  // Favorited
-    savedPresets.push_back({"preset_16", "", false});
-    savedPresets.push_back({"preset_17", "", false});
-    savedPresets.push_back({"preset_18", "", false});
-    savedPresets.push_back({"preset_19", "", false});
-    savedPresets.push_back({"preset_20", "", true});  // Favorited
+    presetsFolder = NativeDialogs::getPresetsFolder();
 }
 
 MainComponent::~MainComponent()
@@ -40,7 +20,8 @@ void MainComponent::paint(juce::Graphics& g)
     // Draw drop shadow for XY control with appropriate color for preset
     auto controlBounds = xyControl.getBounds();
     juce::Path shadowPath;
-    shadowPath.addRoundedRectangle(controlBounds.toFloat(), 24.0f);
+    // Use slightly larger corner radius for shadow to avoid pointed edges
+    shadowPath.addRoundedRectangle(controlBounds.toFloat(), 26.0f);
 
     // Use lighter shadow for dark presets, darker shadow for light presets
     auto preset = xyControl.getCurrentPreset();
@@ -53,8 +34,27 @@ void MainComponent::paint(juce::Graphics& g)
     else // Black
         shadowColor = juce::Colour(0x40000000);  // Even darker shadow for black
 
-    juce::DropShadow shadow(shadowColor, 16, juce::Point<int>(0, 4));
+    // Use slightly larger radius for smoother corners
+    juce::DropShadow shadow(shadowColor, 18, juce::Point<int>(0, 4));
     shadow.drawForPath(g, shadowPath);
+
+    // Draw blue progress outline during hold
+    if (holdProgress > 0.0f)
+    {
+        // Blue outline color with opacity based on progress
+        g.setColour(juce::Colour(0xff007aff).withAlpha(0.3f + holdProgress * 0.7f));
+
+        // Stroke width grows with progress
+        float strokeWidth = 2.0f + holdProgress * 6.0f;
+
+        // Expansion grows with progress - starts at the edge and expands outward
+        float expansion = holdProgress * 12.0f;
+
+        // Draw rounded rectangle outline
+        g.drawRoundedRectangle(controlBounds.toFloat().expanded(expansion),
+                              24.0f + expansion * 0.5f,
+                              strokeWidth);
+    }
 }
 
 void MainComponent::resized()
@@ -72,15 +72,18 @@ void MainComponent::mouseDown(const juce::MouseEvent& event)
     {
         isHoldingOutside = true;
         holdStartTime = juce::Time::currentTimeMillis();
+        holdProgress = 0.0f;
         menuShown = false;
-        startTimer(100);  // Check every 100ms
+        startTimer(16);  // ~60fps for smooth animation
     }
 }
 
 void MainComponent::mouseUp(const juce::MouseEvent& event)
 {
     isHoldingOutside = false;
+    holdProgress = 0.0f;
     stopTimer();
+    repaint();
 }
 
 void MainComponent::mouseDoubleClick(const juce::MouseEvent& event)
@@ -102,200 +105,99 @@ void MainComponent::timerCallback()
         int64_t currentTime = juce::Time::currentTimeMillis();
         int64_t holdDuration = currentTime - holdStartTime;
 
+        // Update hold progress for visual feedback (0.0 to 1.0)
+        holdProgress = juce::jmin(1.0f, holdDuration / 3000.0f);
+        repaint();
+
         if (holdDuration >= 3000)  // 3 seconds
         {
             menuShown = true;
+            holdProgress = 0.0f;
             stopTimer();
-            showPresetMenu();
+            repaint();
+            showPresetOptions();
         }
     }
 }
 
-void MainComponent::showPresetMenu()
+void MainComponent::showPresetOptions()
 {
-    // Custom paint for dim overlay
-    class DimComponent : public juce::Component
+    // Show native macOS menu
+    NativeDialogs::showPresetMenu([this](int result)
     {
-    public:
-        void paint(juce::Graphics& g) override
+        if (result == 1)
         {
-            g.fillAll(juce::Colour(0x40000000));
+            // Save preset
+            NativeDialogs::showSaveDialog(presetsFolder, [this](juce::File file)
+            {
+                if (file != juce::File())
+                {
+                    savePresetToFile(file);
+                }
+            });
         }
-    };
-    dimOverlay.reset(new DimComponent());
-    dimOverlay->setBounds(getLocalBounds());
-    addAndMakeVisible(dimOverlay.get());
-
-    // Create centered preset menu
-    presetMenu = std::make_unique<PresetMenuOverlay>(&savedPresets, [this](int result, const juce::String& action)
-    {
-        // Handle favorite toggle without closing menu
-        if (action == "favorite")
+        else if (result == 2)
         {
-            toggleFavorite(result - 200);
-            return;
-        }
-
-        // Remove overlays for other actions
-        if (dimOverlay != nullptr)
-        {
-            removeChildComponent(dimOverlay.get());
-            dimOverlay.reset();
-        }
-        if (presetMenu != nullptr)
-        {
-            removeChildComponent(presetMenu.get());
-            presetMenu.reset();
+            // Load preset
+            NativeDialogs::showPresetBrowser(presetsFolder, [this](juce::File file)
+            {
+                if (file != juce::File())
+                {
+                    loadPresetFromFile(file);
+                }
+            });
         }
 
-        handleMenuResult(result, action);
+        isHoldingOutside = false;
     });
-
-    addAndMakeVisible(presetMenu.get());
-
-    // Center the menu
-    auto bounds = getLocalBounds();
-    int menuWidth = presetMenu->getWidth();
-    int menuHeight = presetMenu->getHeight();
-    presetMenu->setBounds((bounds.getWidth() - menuWidth) / 2,
-                          (bounds.getHeight() - menuHeight) / 2,
-                          menuWidth,
-                          menuHeight);
 }
 
-void MainComponent::showSaveDialog()
+void MainComponent::savePresetToFile(const juce::File& file)
 {
-    // Custom paint for dim overlay
-    class DimComponent : public juce::Component
-    {
-    public:
-        void paint(juce::Graphics& g) override
-        {
-            g.fillAll(juce::Colour(0x40000000));
-        }
-    };
-    dimOverlay.reset(new DimComponent());
-    dimOverlay->setBounds(getLocalBounds());
-    addAndMakeVisible(dimOverlay.get());
+    // Get current XY position (normalized 0-1)
+    auto position = xyControl.getPosition();
 
-    // Create centered save dialog
-    saveDialog = std::make_unique<SavePresetDialog>([this](juce::String name)
-    {
-        // Remove overlays
-        if (dimOverlay != nullptr)
-        {
-            removeChildComponent(dimOverlay.get());
-            dimOverlay.reset();
-        }
-        if (saveDialog != nullptr)
-        {
-            removeChildComponent(saveDialog.get());
-            saveDialog.reset();
-        }
+    // Get current preset
+    int presetIndex = static_cast<int>(xyControl.getCurrentPreset());
 
-        if (name.isNotEmpty())
-        {
-            savePreset(name);
-        }
-    });
+    // Create JSON object
+    juce::var presetData(new juce::DynamicObject());
+    auto* obj = presetData.getDynamicObject();
+    obj->setProperty("x", position.x);
+    obj->setProperty("y", position.y);
+    obj->setProperty("preset", presetIndex);
 
-    addAndMakeVisible(saveDialog.get());
-
-    // Center the dialog
-    auto bounds = getLocalBounds();
-    int dialogWidth = saveDialog->getWidth();
-    int dialogHeight = saveDialog->getHeight();
-    saveDialog->setBounds((bounds.getWidth() - dialogWidth) / 2,
-                          (bounds.getHeight() - dialogHeight) / 2,
-                          dialogWidth,
-                          dialogHeight);
-}
-
-void MainComponent::handleMenuResult(int result, const juce::String& action)
-{
-    if (result == 1)
-    {
-        // Save preset - show save dialog
-        showSaveDialog();
-    }
-    else if (result >= 100 && result < 100 + (int)savedPresets.size())
-    {
-        // Load preset
-        int presetIndex = result - 100;
-        loadPreset(savedPresets[presetIndex].name);
-    }
-
-    isHoldingOutside = false;
-}
-
-void MainComponent::toggleFavorite(int index)
-{
-    if (index >= 0 && index < (int)savedPresets.size())
-    {
-        savedPresets[index].isFavorite = !savedPresets[index].isFavorite;
-
-        // Rebuild the menu to show updated favorite status
-        if (presetMenu != nullptr)
-        {
-            presetMenu->rebuildPresetList();
-        }
-    }
-}
-
-void MainComponent::savePreset(const juce::String& name)
-{
-    // Add to saved presets list (placeholder for now)
-    savedPresets.push_back({name, "", false});
+    // Write to file
+    juce::String jsonString = juce::JSON::toString(presetData, true);
+    file.replaceWithText(jsonString);
 
     // Show confirmation
-    showConfirmation("Preset Saved", "\"" + name + "\" saved successfully!");
+    NativeDialogs::showConfirmation("Preset Saved",
+        "Preset saved to " + file.getFileName(), [](){});
 }
 
-void MainComponent::loadPreset(const juce::String& name)
+void MainComponent::loadPresetFromFile(const juce::File& file)
 {
-    // Placeholder - just show which preset was loaded
-    showConfirmation("Preset Loaded", "Loaded \"" + name + "\"");
-}
+    // Read file
+    juce::String jsonString = file.loadFileAsString();
 
-void MainComponent::showConfirmation(const juce::String& title, const juce::String& message)
-{
-    // Custom paint for dim overlay
-    class DimComponent : public juce::Component
+    // Parse JSON
+    juce::var presetData = juce::JSON::parse(jsonString);
+
+    if (presetData.isObject())
     {
-    public:
-        void paint(juce::Graphics& g) override
-        {
-            g.fillAll(juce::Colour(0x40000000));
-        }
-    };
-    dimOverlay.reset(new DimComponent());
-    dimOverlay->setBounds(getLocalBounds());
-    addAndMakeVisible(dimOverlay.get());
+        auto* obj = presetData.getDynamicObject();
 
-    // Create centered confirmation dialog
-    confirmDialog = std::make_unique<ConfirmationDialog>(title, message, [this]()
-    {
-        // Remove overlays
-        if (dimOverlay != nullptr)
-        {
-            removeChildComponent(dimOverlay.get());
-            dimOverlay.reset();
-        }
-        if (confirmDialog != nullptr)
-        {
-            removeChildComponent(confirmDialog.get());
-            confirmDialog.reset();
-        }
-    });
+        float x = obj->getProperty("x");
+        float y = obj->getProperty("y");
+        int presetIndex = obj->getProperty("preset");
 
-    addAndMakeVisible(confirmDialog.get());
+        // Apply preset
+        xyControl.setPreset(static_cast<XYControlComponent::Preset>(presetIndex));
+        xyControl.setPosition(x, y);
 
-    // Center the dialog
-    auto bounds = getLocalBounds();
-    int dialogWidth = confirmDialog->getWidth();
-    int dialogHeight = confirmDialog->getHeight();
-    confirmDialog->setBounds((bounds.getWidth() - dialogWidth) / 2,
-                             (bounds.getHeight() - dialogHeight) / 2,
-                             dialogWidth,
-                             dialogHeight);
+        // Show confirmation
+        NativeDialogs::showConfirmation("Preset Loaded",
+            "Loaded preset from " + file.getFileName(), [](){});
+    }
 }

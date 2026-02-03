@@ -12,4 +12,5 @@ public:
                                   std::function<void(juce::File)> onLoad);
     static juce::File getPresetsFolder();
     static void createNewFolder(const juce::File& parentFolder, std::function<void(bool)> callback);
+    static void showPresetMenu(std::function<void(int)> callback);  // 1=Save, 2=Load, 0=Cancel
 };

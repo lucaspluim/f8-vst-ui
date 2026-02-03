@@ -20,6 +20,9 @@ public:
     void setPreset(Preset preset);
     Preset getCurrentPreset() const { return currentPreset; }
 
+    juce::Point<float> getPosition() const { return juce::Point<float>(targetX, targetY); }
+    void setPosition(float x, float y) { targetX = x; targetY = y; springLayers[0].x = x; springLayers[0].y = y; }
+
     void paint(juce::Graphics&) override;
     void resized() override;
 

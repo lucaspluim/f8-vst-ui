@@ -3,6 +3,23 @@
 #if JUCE_MAC
 #import <Cocoa/Cocoa.h>
 
+// Helper class to handle menu item selection
+@interface PresetMenuHandler : NSObject
+@property (nonatomic, copy) void (^callback)(int);
+@property (nonatomic, assign) int selectedValue;
+- (void)menuItemSelected:(id)sender;
+@end
+
+@implementation PresetMenuHandler
+- (void)menuItemSelected:(id)sender {
+    NSMenuItem *item = (NSMenuItem *)sender;
+    self.selectedValue = (int)[item tag];
+    if (self.callback) {
+        self.callback(self.selectedValue);
+    }
+}
+@end
+
 juce::File NativeDialogs::getPresetsFolder()
 {
     // Get user's Documents folder and create XYControl Presets folder
@@ -118,6 +135,54 @@ void NativeDialogs::showConfirmation(const juce::String& title, const juce::Stri
     });
 }
 
+void NativeDialogs::showPresetMenu(std::function<void(int)> callback)
+{
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Create menu handler
+        PresetMenuHandler *handler = [[PresetMenuHandler alloc] init];
+        handler.callback = ^(int result) {
+            callback(result);
+        };
+
+        NSMenu *menu = [[NSMenu alloc] initWithTitle:@""];
+
+        NSMenuItem *saveItem = [[NSMenuItem alloc] initWithTitle:@"Save Preset..."
+                                                          action:@selector(menuItemSelected:)
+                                                   keyEquivalent:@""];
+        [saveItem setTag:1];
+        [saveItem setTarget:handler];
+
+        NSMenuItem *loadItem = [[NSMenuItem alloc] initWithTitle:@"Load Preset..."
+                                                          action:@selector(menuItemSelected:)
+                                                   keyEquivalent:@""];
+        [loadItem setTag:2];
+        [loadItem setTarget:handler];
+
+        [menu addItem:saveItem];
+        [menu addItem:loadItem];
+
+        // Get current mouse location in screen coordinates
+        NSPoint mouseLocation = [NSEvent mouseLocation];
+
+        // Get the main window
+        NSWindow *window = [[NSApplication sharedApplication] mainWindow];
+        NSView *view = [window contentView];
+
+        if (window && view) {
+            // Convert screen coordinates to window coordinates
+            NSPoint windowLocation = [window convertPointFromScreen:mouseLocation];
+
+            // Convert to view coordinates
+            NSPoint viewLocation = [view convertPoint:windowLocation fromView:nil];
+
+            // Show menu at location
+            [menu popUpMenuPositioningItem:nil atLocation:viewLocation inView:view];
+        } else {
+            callback(0);  // No window, cancel
+        }
+    });
+}
+
 #else
 // Fallback for non-Mac platforms
 juce::File NativeDialogs::getPresetsFolder()
@@ -147,5 +212,10 @@ void NativeDialogs::showConfirmation(const juce::String& title, const juce::Stri
 void NativeDialogs::createNewFolder(const juce::File& parentFolder, std::function<void(bool)> callback)
 {
     callback(false);
+}
+
+void NativeDialogs::showPresetMenu(std::function<void(int)> callback)
+{
+    callback(0);
 }
 #endif
