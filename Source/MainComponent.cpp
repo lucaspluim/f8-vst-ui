@@ -2,7 +2,7 @@
 
 MainComponent::MainComponent()
 {
-    setSize(700, 700);
+    setSize(368, 368);  // 30% smaller than previous
     addAndMakeVisible(xyControl);
 
     presetsFolder = NativeDialogs::getPresetsFolder();
@@ -14,46 +14,64 @@ MainComponent::~MainComponent()
 
 void MainComponent::paint(juce::Graphics& g)
 {
-    // Fill background
-    g.fillAll(juce::Colour(0xfff5f5f7));
-
-    // Draw drop shadow for XY control with appropriate color for preset
-    auto controlBounds = xyControl.getBounds();
-    juce::Path shadowPath;
-    // Use slightly larger corner radius for shadow to avoid pointed edges
-    shadowPath.addRoundedRectangle(controlBounds.toFloat(), 26.0f);
-
-    // Use lighter shadow for dark presets, darker shadow for light presets
     auto preset = xyControl.getCurrentPreset();
-    juce::Colour shadowColor;
+
+    // Fill background with color matching the preset
+    juce::Colour backgroundColor;
+    juce::Colour borderColor;
 
     if (preset == XYControlComponent::Preset::Blue)
-        shadowColor = juce::Colour(0x14000000);  // Dark shadow for white background
+    {
+        backgroundColor = juce::Colours::white;
+        borderColor = juce::Colours::black;
+    }
     else if (preset == XYControlComponent::Preset::Red)
-        shadowColor = juce::Colour(0x30000000);  // Darker shadow for red
+    {
+        backgroundColor = juce::Colour(0xFFFF0000);  // Red
+        borderColor = juce::Colours::black;
+    }
     else // Black
-        shadowColor = juce::Colour(0x40000000);  // Even darker shadow for black
+    {
+        backgroundColor = juce::Colour(0xFF0A0A0A);  // Very dark gray instead of pure black
+        borderColor = juce::Colours::white;
+    }
 
-    // Use slightly larger radius for smoother corners
+    g.fillAll(backgroundColor);
+
+    // Subtle drop shadow for depth (Apple-style)
+    auto controlBounds = xyControl.getBounds().toFloat();
+    float cornerRadius = 24.0f;
+
+    juce::Path shadowPath;
+    shadowPath.addRoundedRectangle(controlBounds, cornerRadius);
+
+    // Use appropriate shadow based on preset - all use dark shadows for uniformity
+    juce::Colour shadowColor;
+    if (preset == XYControlComponent::Preset::Blue)
+        shadowColor = juce::Colour(0x14000000);  // Subtle dark on white
+    else if (preset == XYControlComponent::Preset::Red)
+        shadowColor = juce::Colour(0x30000000);  // Darker on red
+    else // Black
+        shadowColor = juce::Colour(0x40000000);  // Dark shadow on very dark gray (barely visible but maintains uniformity)
+
     juce::DropShadow shadow(shadowColor, 18, juce::Point<int>(0, 4));
     shadow.drawForPath(g, shadowPath);
 
-    // Draw blue progress outline during hold
-    if (holdProgress > 0.0f)
+    // Draw blue progress ring during hold (stays glued to border)
+    // Only show after brief delay to avoid flashing on quick double-clicks
+    if (holdProgress > 0.07f)  // ~200ms delay before becoming visible
     {
-        // Blue outline color with opacity based on progress
-        g.setColour(juce::Colour(0xff007aff).withAlpha(0.3f + holdProgress * 0.7f));
+        // Adjust progress to start from 0 after the delay
+        float adjustedProgress = (holdProgress - 0.07f) / 0.93f;
 
-        // Stroke width grows with progress
-        float strokeWidth = 2.0f + holdProgress * 6.0f;
+        // Blue ring color with opacity based on progress
+        g.setColour(juce::Colour(0xff007aff).withAlpha(0.3f + adjustedProgress * 0.7f));
 
-        // Expansion grows with progress - starts at the edge and expands outward
-        float expansion = holdProgress * 12.0f;
+        // Stroke width grows with progress - ring gets thicker but stays attached
+        float strokeWidth = 2.0f + adjustedProgress * 10.0f;
 
-        // Draw rounded rectangle outline
-        g.drawRoundedRectangle(controlBounds.toFloat().expanded(expansion),
-                              24.0f + expansion * 0.5f,
-                              strokeWidth);
+        // Draw ring that stays glued to the XY border (no expansion)
+        g.drawRoundedRectangle(controlBounds, cornerRadius, strokeWidth);
     }
 }
 
@@ -61,8 +79,9 @@ void MainComponent::resized()
 {
     auto bounds = getLocalBounds();
 
-    // Make it 500x500 like the HTML version
-    xyControl.setBounds(bounds.withSizeKeepingCentre(500, 500));
+    // Add padding (26px on each side) for clickable area
+    auto xySize = bounds.getWidth() - 52;  // 26px padding on each side
+    xyControl.setBounds(bounds.withSizeKeepingCentre(xySize, xySize));
 }
 
 void MainComponent::mouseDown(const juce::MouseEvent& event)
