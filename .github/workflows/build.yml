@@ -24,7 +24,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
@@ -52,7 +52,7 @@ jobs:
         cmake --build build --config Release --target XYControlPlugin_VST3 -j 4
 
     - name: Upload VST3 artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
         path: ${{ matrix.artifact_path }}
@@ -71,7 +71,7 @@ jobs:
         zip -r ../../../../XY-Control-VST3-macOS.zip "XY Control.vst3"
 
     - name: Upload zip artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}-zip
         path: "*.zip"
